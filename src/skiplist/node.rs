@@ -41,7 +41,7 @@ impl<K> Node<K> {
 
     pub fn set_next(&mut self, level: usize, node: Option<NonNull<Node<K>>>) -> Result<()> {
         if level >= MAX_HEIGHT {
-            return Err(SkipListError::Fatal("skiplist level > MAX_HEIGHT".to_string()).into());
+            return Err(SkipListError::NodeErr("node高度大于最大高度".to_string()).into());
         }
         let node = match node {
             Some(node) => node.as_ptr(),
@@ -65,7 +65,7 @@ impl<K> Node<K> {
 
     pub(crate) fn no_barrier_set_next(&mut self, level: usize, node: Option<NonNull<Node<K>>>) -> Result<()> {
         if level >= MAX_HEIGHT {
-            return Err(SkipListError::Fatal("skiplist level > MAX_HEIGHT".to_string()).into());
+            return Err(SkipListError::NodeErr("node高度大于最大高度".to_string()).into());
         }
         let node = match node {
             Some(node) => node.as_ptr(),

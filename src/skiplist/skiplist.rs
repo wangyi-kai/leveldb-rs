@@ -1,15 +1,17 @@
 use std::cmp::Ordering::{Equal, Greater, Less};
+use std::ops::Deref;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::skiplist::node::Node;
 use crate::utils::random::Random;
 use crate::error::Result;
+use crate::skiplist::error::SkipListError;
 
 pub const MAX_HEIGHT: usize = 12;
 
 pub trait Comparator<T> {
-    fn cmp(&self, a: &T, b: &T) -> std::cmp::Ordering;
+    fn cmp(&self, a: &T, b: &T) -> std::cmp::Ordering;     
 }
 
 pub struct SkipList<T, C: Comparator<T>> {
@@ -23,8 +25,13 @@ impl<T, C: Comparator<T>> SkipList<T, C> {
         unsafe {
             let mut prev = vec![NonNull::new_unchecked(self.head.as_ptr()); MAX_HEIGHT];
             let mut x = self.find_greater_or_equal(&key, &mut prev);
-            let height = self.random_height();
-
+            if x.is_none() {
+                return Err(SkipListError::Fatal("没有可插入节点".to_string()).into());
+            }
+            if self.compare.cmp(x.unwrap().as_ref().key(), &key) == Equal {
+                return Err(SkipListError::Fatal("不允许插入重复节点".to_string()).into());
+            }
+            let height = self.random_height()?;
             if height > self.get_max_height() {
                 for i in self.get_max_height()..height {
                     prev[i] = self.head;
@@ -32,10 +39,14 @@ impl<T, C: Comparator<T>> SkipList<T, C> {
                 self.max_height.store(height, Ordering::Relaxed);
             }
 
-            let mut new_node = Node::new(key, height);
+            x = Some(NonNull::from_ref(&Node::new(key, height)));
             for i in 0..height {
-                new_node.no_barrier_set_next(i, prev[i].as_ref().next(i))?;
-                prev[i].as_mut().set_next(i, Some(NonNull::from_ref(&new_node)))?;
+                if let Some(node) = prev.get(i) {
+                    x.unwrap().as_mut().no_barrier_set_next(i, Some(*node))?;
+                } else {
+                    x.unwrap().as_mut().no_barrier_set_next(i, None)?;
+                }
+                prev[i].as_mut().set_next(i, Some(NonNull::from_ref(x.unwrap().as_ref())))?;
             }
         }
 
@@ -53,15 +64,17 @@ impl<T, C: Comparator<T>> SkipList<T, C> {
         self.max_height.load(Ordering::Relaxed)
     }
 
-    pub fn random_height(&self) -> usize {
+    pub fn random_height(&self) -> Result<usize> {
         let mut rnd = Random::init(0xdeadbeef);
         let mut height = 1;
         while height < MAX_HEIGHT && rnd.one_in(4){
             height += 1;
         }
-        assert!(height > 0);
-        assert!(height < MAX_HEIGHT);
-        height
+        if height > MAX_HEIGHT {
+            return Err(SkipListError::Fatal("生成的高度不满足要求".to_string()).into());
+        }
+
+        Ok(height)
     }
 
     pub fn key_is_after_node(&self, key: &T, node: Option<NonNull<Node<T>>>) -> bool {
